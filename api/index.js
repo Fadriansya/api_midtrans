@@ -6,8 +6,10 @@ module.exports = async (req, res) => {
   }
 
   const { order_id, gross_amount, name, email } = req.body;
-  const MIDTRANS_SERVER_KEY = process.env.MIDTRANS_SERVER_KEY; // simpan di env Vercel
+
+  const MIDTRANS_SERVER_KEY = process.env.MIDTRANS_SERVER_KEY;
   const MIDTRANS_API_URL = "https://app.sandbox.midtrans.com/snap/v1/transactions";
+  const BASE_URL = "https://api-midtrans-teal.vercel.app";
 
   try {
     const response = await axios.post(
@@ -15,6 +17,13 @@ module.exports = async (req, res) => {
       {
         transaction_details: { order_id, gross_amount },
         customer_details: { first_name: name, email },
+
+        callbacks: {
+          finish: `${BASE_URL}/api/payment-finish`,
+          notification: `${BASE_URL}/api/midtrans-webhook`,
+          unfinish: `${BASE_URL}/api/payment-unfinish`,
+          error: `${BASE_URL}/api/payment-error`,
+        },
       },
       {
         headers: {
@@ -24,8 +33,10 @@ module.exports = async (req, res) => {
         },
       }
     );
-    res.status(200).json(response.data);
+
+    return res.status(200).json(response.data);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Midtrans API Error:", error.response?.data || error);
+    return res.status(500).json({ error: "Midtrans error" });
   }
 };
