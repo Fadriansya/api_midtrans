@@ -1,5 +1,22 @@
 const admin = require("firebase-admin");
 
+// --- Body Parser for Vercel ---
+async function parseBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(body));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -18,15 +35,15 @@ module.exports = async (req, res) => {
   }
 
   try {
-    console.log("Webhook data:", req.body);
+    const body = await parseBody(req); // 👈 WAJIB
+    console.log("Webhook data:", body);
 
-    const { order_id, transaction_status } = req.body;
+    const { order_id, transaction_status } = body;
 
     if (!order_id) {
       return res.status(400).json({ error: "Missing order_id" });
     }
 
-    // Update ke Firestore
     await db
       .collection("orders")
       .doc(order_id)
@@ -38,8 +55,6 @@ module.exports = async (req, res) => {
         },
         { merge: true }
       );
-
-    console.log("✔ Firestore updated successfully!");
 
     return res.status(200).json({ message: "Webhook received" });
   } catch (error) {
