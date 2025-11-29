@@ -16,10 +16,10 @@ module.exports = async (req, res) => {
         transaction_details: { order_id, gross_amount },
         customer_details: { first_name: name, email },
         callbacks: {
-          finish: `https://api-midtrans-teal.vercel.app/api/payment-finish`,
+          finish: `https://api-midtrans-teal.vercel.app/api/payment_finish`,
           notification: `https://api-midtrans-teal.vercel.app/api/midtrans-webhook`,
-          unfinish: `https://api-midtrans-teal.vercel.app/api/payment-unfinish`,
-          error: `https://api-midtrans-teal.vercel.app/api/payment-error`,
+          unfinish: `https://api-midtrans-teal.vercel.app/api/payment_unfinish`,
+          error: `https://api-midtrans-teal.vercel.app/api/payment_error`,
         },
       },
       {
