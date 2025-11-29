@@ -1,3 +1,3 @@
-module.exports = async (req, res) => {
-  return res.status(200).send("Payment berhasil!");
+module.exports = (req, res) => {
+  res.status(200).json({ message: "Finish callback received", data: req.query });
 };
