@@ -1,9 +1,8 @@
-// api/payment_finish.js
+// api/payment-finish.js
 module.exports = (req, res) => {
   const orderId = req.query.order_id || "";
-  const redirectUrl = `myapp://payment/success?order_id=${orderId}`;
-
-  // Redirect ke custom scheme agar WebView Flutter bisa menangkap dan menutup.
-  res.writeHead(302, { Location: redirectUrl });
+  const scheme = process.env.CUSTOM_FINISH_SCHEME || "myapp://payment";
+  const redirect = `${scheme}/success?order_id=${encodeURIComponent(orderId)}`;
+  res.writeHead(302, { Location: redirect });
   res.end();
 };
