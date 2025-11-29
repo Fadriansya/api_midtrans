@@ -20,7 +20,7 @@ module.exports = async (req, res) => {
 
   let body = req.body;
 
-  // Fix jika body kosong
+  // Fallback jika req.body kosong
   if (!body || Object.keys(body).length === 0) {
     body = await new Promise((resolve) => {
       let raw = "";
@@ -36,6 +36,11 @@ module.exports = async (req, res) => {
 
   if (!orderId) return res.status(400).json({ error: "No order_id found" });
 
+  // Pastikan order exists
+  const orderRef = db.collection("orders").doc(orderId);
+  const historyRef = db.collection("order_history").doc(orderId);
+
+  // Mapping status Midtrans -> aplikasi
   let appStatus = "pending_payment";
 
   if (status === "capture" || status === "settlement") {
@@ -46,19 +51,19 @@ module.exports = async (req, res) => {
     appStatus = "pending_payment";
   }
 
-  // Update Firestore
-  await db.collection("orders").doc(orderId).set(
-    {
-      status: appStatus,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
-      midtrans_raw: body,
-    },
-    { merge: true }
-  );
+  const update = {
+    status: appStatus,
+    updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    midtrans_raw: body,
+  };
+
+  // Write to both main orders & history
+  await orderRef.set(update, { merge: true });
+  await historyRef.set(update, { merge: true });
 
   console.log(`🔥 UPDATED ORDER ${orderId} => ${appStatus}`);
 
-  // Kirim notifikasi ke driver hanya sekali saat "waiting"
+  // Only send notification when order masuk ke status "waiting"
   if (appStatus === "waiting") {
     const drivers = await db.collection("users").where("role", "==", "driver").where("fcm_token", "!=", null).get();
 
@@ -76,6 +81,8 @@ module.exports = async (req, res) => {
         },
         tokens,
       });
+
+      console.log("📩 FCM dikirim ke driver:", tokens.length, "device");
     }
   }
 
