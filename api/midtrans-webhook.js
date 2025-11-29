@@ -69,6 +69,12 @@ module.exports = async (req, res) => {
   // KIRIM NOTIF DRIVER (HANYA SEKALI)
   // =========================
   if (paymentStatus === "paid") {
+    await db.collection("orders").doc(orderId).set(
+      {
+        status: "waiting",
+      },
+      { merge: true }
+    );
     const orderDoc = await db.collection("orders").doc(orderId).get();
 
     // Cegah notifikasi berulang
