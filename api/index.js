@@ -105,6 +105,14 @@ async function handleSnapRequest(body, res) {
     return res.status(400).json({ error: "Missing required fields for Snap request" });
   }
 
+  // =========================================================
+  // DEBUG CHECK: Pastikan Server Key terisi sebelum ke Midtrans
+  // =========================================================
+  if (!process.env.MIDTRANS_SERVER_KEY) {
+    console.error("CONFIGURATION ERROR: MIDTRANS_SERVER_KEY is not set in Environment Variables.");
+    return res.status(500).json({ error: "Configuration Error: Midtrans Server Key not found." });
+  }
+
   const transactionDetails = {
     order_id: order_id,
     gross_amount: total_amount,
@@ -135,7 +143,16 @@ async function handleSnapRequest(body, res) {
     });
   } catch (error) {
     console.error("Error creating Midtrans transaction:", error);
-    return res.status(500).json({ error: "Failed to create Midtrans transaction" });
+    // Tambahkan detail error dari Midtrans ke respons untuk debugging
+    const errorMessage = error.message || "Failed to create Midtrans transaction";
+    const midtransResponse = error.ApiResponse || null;
+
+    console.error("Midtrans API Response Detail:", midtransResponse);
+
+    return res.status(500).json({
+      error: errorMessage,
+      details: midtransResponse, // Kirim respons API Midtrans (jika ada)
+    });
   }
 }
 
