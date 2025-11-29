@@ -15,10 +15,13 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 module.exports = async (req, res) => {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
-  // PARSE JSON MANUAL
   let body = req.body;
+
+  // Manual parse jika body kosong
   if (!body || Object.keys(body).length === 0) {
     body = await new Promise((resolve, reject) => {
       let raw = "";
@@ -28,69 +31,79 @@ module.exports = async (req, res) => {
     });
   }
 
-  console.log("Webhook payload:", JSON.stringify(body));
+  console.log("MIDTRANS WEBHOOK:", body);
 
   const orderId = body.order_id;
-  const status = body.transaction_status;
+  const transactionStatus = body.transaction_status;
 
-  if (!orderId) return res.status(400).json({ error: "Missing order_id" });
-
-  let appStatus = "pending_payment";
-  // settlement/capture => app ready for driver (set to waiting)
-  if (transactionStatus === "settlement" || transactionStatus === "capture") {
-    appStatus = "waiting"; // supaya driver menerima (listener mencari 'waiting')
-  } else if (transactionStatus === "cancel" || transactionStatus === "deny" || transactionStatus === "expire") {
-    appStatus = "payment_failed";
-  } else if (transactionStatus === "pending") {
-    appStatus = "pending_payment";
+  if (!orderId || !transactionStatus) {
+    return res.status(400).json({ error: "Invalid webhook payload" });
   }
 
-  if (status === "settlement" || status === "capture") appStatus = "paid";
-  else if (["cancel", "deny", "expire"].includes(status)) appStatus = "payment_failed";
+  // =========================
+  // MAP STATUS MIDTRANS KE APP
+  // =========================
+  let paymentStatus = "pending_payment";
 
-  // Update order
-  await db
-    .collection("orders")
-    .doc(orderId)
-    .set(
-      {
-        status: appStatus,
-        paid: appStatus === "paid",
-        midtrans_raw: body,
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+  if (["settlement", "capture"].includes(transactionStatus)) {
+    paymentStatus = "paid";
+  } else if (["cancel", "deny", "expire"].includes(transactionStatus)) {
+    paymentStatus = "payment_failed";
+  }
 
-  console.log(`Order ${orderId} updated to ${appStatus}`);
+  // =========================
+  // UPDATE PAYMENT STATUS SAJA
+  // =========================
+  await db.collection("orders").doc(orderId).set(
+    {
+      payment_status: paymentStatus,
+      midtrans_raw: body,
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
 
-  // ==== NOTIFY DRIVERS ====
-  if (appStatus === "paid") {
-    await db.collection("orders").doc(orderId).set(
-      {
-        status: "waiting",
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-    const drivers = await db.collection("users").where("role", "==", "driver").where("fcm_token", "!=", null).get();
+  console.log(`PAYMENT STATUS UPDATED: ${orderId} → ${paymentStatus}`);
 
-    const tokens = drivers.docs.map((d) => d.data().fcm_token);
+  // =========================
+  // KIRIM NOTIF DRIVER (HANYA SEKALI)
+  // =========================
+  if (paymentStatus === "paid") {
+    const orderDoc = await db.collection("orders").doc(orderId).get();
 
-    if (tokens.length > 0) {
-      await admin.messaging().sendMulticast({
-        notification: {
-          title: "Order Baru Tersedia",
-          body: `Order ${orderId} telah dibayar dan siap diambil.`,
+    // Cegah notifikasi berulang
+    if (orderDoc.data().driver_notified === true) {
+      console.log("Driver already notified → skip");
+    } else {
+      // tandai supaya tidak notifikasi 2 kali
+      await db.collection("orders").doc(orderId).set(
+        {
+          driver_notified: true,
         },
-        data: {
-          type: "new_order",
-          order_id: orderId,
-        },
-        tokens,
-      });
+        { merge: true }
+      );
+
+      const drivers = await db.collection("users").where("role", "==", "driver").where("fcm_token", "!=", null).get();
+
+      const tokens = drivers.docs.map((d) => d.data().fcm_token);
+
+      if (tokens.length > 0) {
+        await admin.messaging().sendMulticast({
+          notification: {
+            title: "Order Baru",
+            body: `Order ${orderId} sudah dibayar dan siap diambil.`,
+          },
+          data: {
+            type: "new_order",
+            order_id: orderId,
+          },
+          tokens,
+        });
+
+        console.log("Driver notified.");
+      }
     }
   }
 
-  return res.status(200).json({ message: "Webhook received" });
+  return res.status(200).json({ success: true });
 };
