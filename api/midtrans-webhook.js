@@ -1,8 +1,7 @@
+// api/midtrans-webhook.js
 const admin = require("firebase-admin");
 
-// INIT FIREBASE
 if (!admin.apps.length) {
-  // Pastikan Environment Variables sudah terisi di Vercel Dashboard
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
@@ -21,102 +20,64 @@ module.exports = async (req, res) => {
 
   let body = req.body;
 
-  // Manual parse untuk kasus Vercel gagal parsing JSON otomatis (JANGAN DIHAPUS)
+  // Fix jika body kosong
   if (!body || Object.keys(body).length === 0) {
-    try {
-      body = await new Promise((resolve, reject) => {
-        let raw = "";
-        req.on("data", (chunk) => (raw += chunk));
-        req.on("end", () => resolve(JSON.parse(raw || "{}")));
-        req.on("error", reject);
-      });
-    } catch (e) {
-      console.error("Error parsing raw body:", e);
-      return res.status(400).json({ error: "Invalid JSON body" });
-    }
+    body = await new Promise((resolve) => {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => resolve(JSON.parse(raw || "{}")));
+    });
   }
 
-  console.log("MIDTRANS WEBHOOK:", body);
+  console.log("🔥 MIDTRANS WEBHOOK:", body);
 
   const orderId = body.order_id;
-  const transactionStatus = body.transaction_status;
+  const status = body.transaction_status;
 
-  if (!orderId || !transactionStatus) {
-    return res.status(400).json({ error: "Invalid webhook payload" });
+  if (!orderId) return res.status(400).json({ error: "No order_id found" });
+
+  let appStatus = "pending_payment";
+
+  if (status === "capture" || status === "settlement") {
+    appStatus = "waiting";
+  } else if (["deny", "cancel", "expire"].includes(status)) {
+    appStatus = "payment_failed";
+  } else if (status === "pending") {
+    appStatus = "pending_payment";
   }
 
-  // =========================
-  // 1. MAP STATUS MIDTRANS KE APP
-  // =========================
-  let paymentStatus = "pending_payment";
+  // Update Firestore
+  await db.collection("orders").doc(orderId).set(
+    {
+      status: appStatus,
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      midtrans_raw: body,
+    },
+    { merge: true }
+  );
 
-  if (["settlement", "capture"].includes(transactionStatus)) {
-    paymentStatus = "paid";
-  } else if (["cancel", "deny", "expire"].includes(transactionStatus)) {
-    paymentStatus = "payment_failed";
-  }
+  console.log(`🔥 UPDATED ORDER ${orderId} => ${appStatus}`);
 
-  // =========================
-  // 2. UPDATE STATUS PEMBAYARAN & STATUS PESANAN UTAMA
-  // =========================
-  const updateData = {
-    payment_status: paymentStatus,
-    midtrans_raw: body,
-    updated_at: admin.firestore.FieldValue.serverTimestamp(),
-  };
+  // Kirim notifikasi ke driver hanya sekali saat "waiting"
+  if (appStatus === "waiting") {
+    const drivers = await db.collection("users").where("role", "==", "driver").where("fcm_token", "!=", null).get();
 
-  // Tambahkan 'status: waiting' hanya jika pembayaran sukses
-  if (paymentStatus === "paid") {
-    // 🔥 PERBAIKAN SINKRONISASI KRITIS: Update status utama untuk Polling Flutter 🔥
-    updateData.status = "waiting";
-  }
+    const tokens = drivers.docs.map((d) => d.data().fcm_token);
 
-  await db.collection("orders").doc(orderId).set(updateData, { merge: true });
-
-  console.log(`PAYMENT STATUS UPDATED: ${orderId} → ${paymentStatus} (Order Status: ${updateData.status || "unchanged"})`);
-
-  // =========================
-  // 3. KIRIM NOTIF DRIVER (HANYA JIKA STATUS BARU 'paid')
-  // =========================
-  if (paymentStatus === "paid") {
-    const orderDoc = await db.collection("orders").doc(orderId).get();
-
-    // Cegah notifikasi berulang (hanya kirim jika driver_notified BUKAN true)
-    if (orderDoc.exists && orderDoc.data().driver_notified === true) {
-      console.log("Driver already notified → skip");
-    } else {
-      // Tandai supaya tidak notifikasi 2 kali
-      await db.collection("orders").doc(orderId).set(
-        {
-          driver_notified: true,
+    if (tokens.length > 0) {
+      await admin.messaging().sendMulticast({
+        notification: {
+          title: "Order Baru Masuk",
+          body: `Order ${orderId} sudah dibayar dan siap diambil.`,
         },
-        { merge: true }
-      );
-
-      // Ambil token driver
-      const drivers = await db.collection("users").where("role", "==", "driver").where("fcm_token", "!=", null).get();
-
-      const tokens = drivers.docs.map((d) => d.data().fcm_token);
-
-      if (tokens.length > 0) {
-        await admin.messaging().sendMulticast({
-          notification: {
-            title: "Order Baru",
-            body: `Order ${orderId} sudah dibayar dan siap diambil.`,
-          },
-          data: {
-            type: "new_order",
-            order_id: orderId,
-          },
-          tokens,
-        });
-
-        console.log(`Driver notified. Tokens sent: ${tokens.length}`);
-      } else {
-        console.log("No available drivers with FCM tokens found.");
-      }
+        data: {
+          type: "new_order",
+          order_id: orderId,
+        },
+        tokens,
+      });
     }
   }
 
-  return res.status(200).json({ success: true, message: "Webhook processed" });
+  return res.json({ success: true });
 };

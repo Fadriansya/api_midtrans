@@ -2,30 +2,42 @@
 const axios = require("axios");
 
 module.exports = async (req, res) => {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   const { order_id, gross_amount, name, email } = req.body;
+
+  if (!order_id || !gross_amount) {
+    return res.status(400).json({
+      error: "order_id and gross_amount are required",
+    });
+  }
+
   const MIDTRANS_SERVER_KEY = process.env.MIDTRANS_SERVER_KEY;
-  const MIDTRANS_API_URL = "https://app.sandbox.midtrans.com/snap/v1/transactions";
-  const BASE_URL = process.env.BASE_URL || "https://api-midtrans-teal.vercel.app/api/index";
 
   try {
     const response = await axios.post(
-      MIDTRANS_API_URL,
+      "https://app.sandbox.midtrans.com/snap/v1/transactions",
       {
-        transaction_details: { order_id, gross_amount },
-        customer_details: { first_name: name, email },
+        transaction_details: {
+          order_id,
+          gross_amount: Number(gross_amount), // FIX: harus number
+        },
+        customer_details: {
+          first_name: name,
+          email,
+        },
         callbacks: {
-          finish: `https://api-midtrans-teal.vercel.app/api/payment-finish`,
-          notification: `https://api-midtrans-teal.vercel.app/api/midtrans-webhook`,
-          unfinish: `https://api-midtrans-teal.vercel.app/api/payment-unfinish`,
-          error: `https://api-midtrans-teal.vercel.app/api/payment-error`,
+          finish: "https://api-midtrans-teal.vercel.app/api/payment-finish",
+          error: "https://api-midtrans-teal.vercel.app/api/payment-error",
+          unfinish: "https://api-midtrans-teal.vercel.app/api/payment-unfinish",
+          notification: "https://api-midtrans-teal.vercel.app/api/midtrans-webhook",
         },
       },
       {
         headers: {
           "Content-Type": "application/json",
-          Accept: "application/json",
           Authorization: "Basic " + Buffer.from(MIDTRANS_SERVER_KEY + ":").toString("base64"),
         },
       }
@@ -33,7 +45,10 @@ module.exports = async (req, res) => {
 
     return res.status(200).json(response.data);
   } catch (error) {
-    console.error("Midtrans API Error:", error.response?.data || error.message || error);
-    return res.status(500).json({ error: "Midtrans error" });
+    console.log("MIDTRANS ERROR:", error.response?.data || error.message);
+    return res.status(500).json({
+      error: "Midtrans error",
+      detail: error.response?.data || null,
+    });
   }
 };
