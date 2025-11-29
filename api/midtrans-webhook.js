@@ -43,11 +43,26 @@ module.exports = async (req, res) => {
   // Mapping status Midtrans -> aplikasi
   let appStatus = "pending_payment";
 
-  if (status === "capture" || status === "settlement") {
+  const tran = status.toLowerCase();
+  const fraud = (body.fraud_status || "").toLowerCase();
+  const type = (body.payment_type || "").toLowerCase();
+
+  // === Kondisi pembayaran sukses ===
+  if (
+    tran === "capture" ||
+    tran === "settlement" ||
+    tran === "success" ||
+    (tran === "capture" && fraud === "accept") ||
+    (tran === "pending" && type === "qris") // QRIS biasanya langsung sukses setelah pending
+  ) {
     appStatus = "waiting";
-  } else if (["deny", "cancel", "expire"].includes(status)) {
+  }
+  // === Kondisi gagal ===
+  else if (["deny", "cancel", "expire", "failure"].includes(tran)) {
     appStatus = "payment_failed";
-  } else if (status === "pending") {
+  }
+  // === Pending ===
+  else if (tran === "pending") {
     appStatus = "pending_payment";
   }
 
