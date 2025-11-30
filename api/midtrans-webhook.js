@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
   const fraud = (body.fraud_status || "").toLowerCase();
   const type = (body.payment_type || "").toLowerCase();
 
-  let appStatus = "pending_payment";
+  let appStatus = "waiting";
 
   if (tx === "settlement" || (tx === "capture" && fraud === "accept")) {
     appStatus = "waiting";

@@ -21,7 +21,7 @@ module.exports = async (req, res) => {
     const orderRef = db.collection("orders").doc(orderId);
     const historyRef = db.collection("order_history").doc(orderId);
 
-    let newStatus = "pending_payment";
+    let newStatus = "waiting";
     if (status === "settlement" || status === "capture" || status === "success") newStatus = "waiting";
     if (["deny", "cancel", "expire", "failure"].includes(status)) newStatus = "payment_failed";
 
