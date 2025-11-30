@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
     const historyRef = db.collection("order_history").doc(orderId);
 
     let newStatus = "waiting";
-    if (status === "settlement" || status === "capture" || status === "success") newStatus = "waiting";
+    if (status === "settlement" || status === "capture" || status === "success") newStatus = "payment_success";
     if (["deny", "cancel", "expire", "failure"].includes(status)) newStatus = "payment_failed";
 
     await orderRef.set({ status: newStatus, payment_status: status, updated_at: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
