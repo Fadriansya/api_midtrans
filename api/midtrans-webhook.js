@@ -110,7 +110,7 @@ module.exports = async (req, res) => {
     console.log(`🔥 UPDATED ORDER ${orderId}: ${prevStatus} → ${appStatus}`);
 
     // Send notif only when transitioning into waiting state
-    if (appStatus === "waiting" && prevStatus !== "waiting") {
+    if (appStatus === "payment_success" && prevStatus !== "payment_success") {
       const drivers = await db.collection("users").where("role", "==", "driver").where("fcm_token", "!=", null).get();
 
       const tokens = drivers.docs.map((d) => d.data().fcm_token).filter(Boolean);
